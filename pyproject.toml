@@ -1,6 +1,6 @@
 [project]
 name = "immich-mgmt"
-version = "0.1.0"
+version = "0.2.0"
 description = "First working version of Immich v3.x Album Deletion Tool"
 readme = "README.md"
 authors = [

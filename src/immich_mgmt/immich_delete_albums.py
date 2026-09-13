@@ -1,54 +1,41 @@
 #!/usr/bin/env python3
 
 """
-Immich v3.x - Bulk delete albums and all assets inside them.
+Immich v3.x album management tool.
 
 Features:
     - Interactive album selection
     - Album name/pattern matching
+    - Find and delete empty albums
     - Dry-run by default
     - Explicit DELETE confirmation
-    - Handles albums with >1000 assets
+    - Handles albums containing more than 1,000 assets
     - Deduplicates assets across selected albums
     - Permanently deletes assets through the Immich API
     - Deletes selected albums afterward
 
-Requirements:
-    Python 3.9+
-    requests
-
-Install:
-    python3 -m pip install requests
-
-
-Environment variables:
-
-    IMMICH_URL
-        Default:
-            http://192.168.2.6:2283/api
-
-    IMMICH_API_KEY
-        Your Immich API key
-
-
 Examples:
 
-    # Interactive selection
-    python3 immich_delete_albums.py
+    # Interactive mode
+    uv run python src/immich_mgmt/immich_delete_albums.py
 
-    # Find albums matching a pattern
-    python3 immich_delete_albums.py --match '2020*'
+    # Find albums by name
+    uv run python src/immich_mgmt/immich_delete_albums.py \
+        --match '*_snapshot_image'
 
-    # Find albums containing "Screenshots"
-    python3 immich_delete_albums.py --match '*Screenshots*'
+    # Permanently delete matching albums and their assets
+    uv run python src/immich_mgmt/immich_delete_albums.py \
+        --match '*_snapshot_image' \
+        --permanent
 
-    # Actually delete matching albums/assets
-    python3 immich_delete_albums.py --match '2020*' --permanent
+    # Find empty albums
+    uv run python src/immich_mgmt/immich_delete_albums.py \
+        --empty
 
-    # Override server URL
-    python3 immich_delete_albums.py \
-        --url 'http://192.168.2.6:2283/api' \
-        --match '2020*'
+    # Permanently delete empty albums ONLY
+    uv run python src/immich_mgmt/immich_delete_albums.py \
+        --empty \
+        --permanent
 """
 
 from __future__ import annotations
@@ -63,6 +50,11 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+
+# ---------------------------------------------------------------------------
+# Load .env
+# ---------------------------------------------------------------------------
+
 load_dotenv()
 
 
@@ -74,7 +66,6 @@ DEFAULT_IMMICH_URL = "http://192.168.2.6:2283/api"
 
 PAGE_SIZE = 1000
 
-# Number of assets sent in one DELETE request.
 DELETE_BATCH_SIZE = 500
 
 
@@ -83,8 +74,14 @@ DELETE_BATCH_SIZE = 500
 # ---------------------------------------------------------------------------
 
 class ImmichClient:
-    def __init__(self, base_url: str, api_key: str):
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+    ):
         self.base_url = base_url.rstrip("/")
+
         self.session = requests.Session()
 
         self.session.headers.update(
@@ -94,6 +91,10 @@ class ImmichClient:
                 "x-api-key": api_key,
             }
         )
+
+    # -----------------------------------------------------------------------
+    # Generic request
+    # -----------------------------------------------------------------------
 
     def request(
         self,
@@ -111,7 +112,9 @@ class ImmichClient:
                 timeout=120,
                 **kwargs,
             )
+
         except requests.RequestException as exc:
+
             raise RuntimeError(
                 f"Unable to connect to Immich:\n"
                 f"  {url}\n"
@@ -119,6 +122,7 @@ class ImmichClient:
             ) from exc
 
         if not response.ok:
+
             body = response.text.strip()
 
             raise RuntimeError(
@@ -134,19 +138,30 @@ class ImmichClient:
     # Albums
     # -----------------------------------------------------------------------
 
-    def get_albums(self) -> list[dict[str, Any]]:
-        response = self.request("GET", "/albums")
+    def get_albums(
+        self,
+    ) -> list[dict[str, Any]]:
+
+        response = self.request(
+            "GET",
+            "/albums",
+        )
 
         data = response.json()
 
         if not isinstance(data, list):
+
             raise RuntimeError(
                 "Unexpected response from /albums."
             )
 
         return data
 
-    def delete_album(self, album_id: str) -> None:
+    def delete_album(
+        self,
+        album_id: str,
+    ) -> None:
+
         self.request(
             "DELETE",
             f"/albums/{album_id}",
@@ -159,28 +174,14 @@ class ImmichClient:
     def get_album_assets(
         self,
         album_id: str,
+        verbose: bool = True,
     ) -> list[dict[str, Any]]:
 
         """
-        Immich v3:
+        Retrieve all assets belonging to an album.
 
-            GET /albums/{id}
-
-        does not reliably provide the album's asset list.
-
-        We therefore use:
-
-            POST /search/metadata
-
-        with:
-
-            {
-                "albumIds": [album_id],
-                "page": 1,
-                "size": 1000
-            }
-
-        and continue through all pages.
+        Immich v3 uses /search/metadata with albumIds.
+        Pagination is handled automatically.
         """
 
         assets: list[dict[str, Any]] = []
@@ -203,60 +204,75 @@ class ImmichClient:
 
             data = response.json()
 
-            asset_container = data.get("assets", {})
+            asset_container = data.get(
+                "assets",
+                {},
+            )
 
-            if not isinstance(asset_container, dict):
+            if not isinstance(
+                asset_container,
+                dict,
+            ):
+
                 raise RuntimeError(
-                    "Unexpected response from /search/metadata."
+                    "Unexpected response from "
+                    "/search/metadata."
                 )
 
-            items = asset_container.get("items", [])
+            items = asset_container.get(
+                "items",
+                [],
+            )
 
-            if not isinstance(items, list):
+            if not isinstance(
+                items,
+                list,
+            ):
+
                 raise RuntimeError(
                     "Unexpected assets.items response."
                 )
 
             assets.extend(items)
 
-            print(
-                f"      page {page}: "
-                f"{len(items):,} assets"
-            )
+            if verbose:
 
-            next_page = asset_container.get("nextPage")
+                print(
+                    f"      page {page}: "
+                    f"{len(items):,} assets"
+                )
+
+            next_page = asset_container.get(
+                "nextPage"
+            )
 
             if next_page is None:
                 break
 
             try:
+
                 page = int(next_page)
-            except (TypeError, ValueError) as exc:
+
+            except (
+                TypeError,
+                ValueError,
+            ) as exc:
+
                 raise RuntimeError(
-                    f"Invalid nextPage: {next_page!r}"
+                    f"Invalid nextPage: "
+                    f"{next_page!r}"
                 ) from exc
 
         return assets
 
     # -----------------------------------------------------------------------
-    # Asset deletion
+    # Delete assets
     # -----------------------------------------------------------------------
 
     def delete_assets(
         self,
         asset_ids: list[str],
     ) -> None:
-
-        """
-        DELETE /assets
-
-        {
-            "ids": [...],
-            "force": true
-        }
-
-        force=true permanently deletes the assets.
-        """
 
         total = len(asset_ids)
 
@@ -272,7 +288,8 @@ class ImmichClient:
 
             print(
                 f"    Deleting assets "
-                f"{start + 1:,}-{start + len(batch):,} "
+                f"{start + 1:,}-"
+                f"{start + len(batch):,} "
                 f"of {total:,}..."
             )
 
@@ -305,15 +322,21 @@ def get_asset_filename(
     asset: dict[str, Any],
 ) -> str:
 
-    filename = asset.get("originalFileName")
+    filename = asset.get(
+        "originalFileName"
+    )
 
     if filename:
         return str(filename)
 
-    original_path = asset.get("originalPath")
+    original_path = asset.get(
+        "originalPath"
+    )
 
     if original_path:
-        return str(original_path).split("/")[-1]
+        return str(
+            original_path
+        ).split("/")[-1]
 
     return "<unknown>"
 
@@ -329,6 +352,7 @@ def get_asset_type(
 
 
 def print_separator() -> None:
+
     print("=" * 72)
 
 
@@ -341,17 +365,6 @@ def find_matching_albums(
     pattern: str,
 ) -> list[dict[str, Any]]:
 
-    """
-    Match album names using shell-style wildcards.
-
-    Examples:
-
-        2020*
-        *Screenshots*
-        Trip*
-        *backup*
-    """
-
     matches = []
 
     for album in albums:
@@ -362,9 +375,84 @@ def find_matching_albums(
             name,
             pattern,
         ):
+
             matches.append(album)
 
     return matches
+
+
+# ---------------------------------------------------------------------------
+# Empty album detection
+# ---------------------------------------------------------------------------
+
+def find_empty_albums(
+    client: ImmichClient,
+    albums: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+
+    """
+    Find albums that contain zero assets.
+
+    We explicitly query each album rather than trusting the
+    assetCount returned by GET /albums.
+
+    This means --empty is based on the actual asset contents.
+    """
+
+    empty_albums: list[
+        dict[str, Any]
+    ] = []
+
+    print()
+    print_separator()
+    print("Checking for empty albums")
+    print_separator()
+
+    total = len(albums)
+
+    for index, album in enumerate(
+        albums,
+        start=1,
+    ):
+
+        album_id = album.get("id")
+
+        name = get_album_name(album)
+
+        print(
+            f"[{index:,}/{total:,}] "
+            f"{name}"
+        )
+
+        if not album_id:
+
+            print(
+                "    WARNING: album has no ID; "
+                "skipping."
+            )
+
+            continue
+
+        assets = client.get_album_assets(
+            str(album_id),
+            verbose=False,
+        )
+
+        if len(assets) == 0:
+
+            empty_albums.append(album)
+
+            print(
+                "    EMPTY"
+            )
+
+        else:
+
+            print(
+                f"    {len(assets):,} assets"
+            )
+
+    return empty_albums
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +464,9 @@ def select_albums_interactively(
 ) -> list[dict[str, Any]]:
 
     if not albums:
+
         print("No albums found.")
+
         return []
 
     print()
@@ -391,13 +481,18 @@ def select_albums_interactively(
 
         name = get_album_name(album)
 
-        asset_count = album.get("assetCount")
+        asset_count = album.get(
+            "assetCount"
+        )
 
         if asset_count is not None:
+
             count_text = (
                 f"{asset_count:,} assets"
             )
+
         else:
+
             count_text = (
                 "asset count unknown"
             )
@@ -410,11 +505,13 @@ def select_albums_interactively(
 
     print()
     print("Select albums by number.")
+
     print("Examples:")
     print("  1")
     print("  1,3,5")
     print("  1-5")
     print("  1,3-7,12")
+
     print()
 
     while True:
@@ -424,18 +521,27 @@ def select_albums_interactively(
         ).strip()
 
         if not selection:
-            print("Nothing selected.")
+
+            print(
+                "Nothing selected."
+            )
+
             continue
 
         try:
+
             indices = parse_selection(
                 selection,
                 len(albums),
             )
+
         except ValueError as exc:
+
             print(
-                f"Invalid selection: {exc}"
+                f"Invalid selection: "
+                f"{exc}"
             )
+
             continue
 
         return [
@@ -463,23 +569,29 @@ def parse_selection(
             pieces = part.split("-")
 
             if len(pieces) != 2:
+
                 raise ValueError(
                     f"Invalid range: {part}"
                 )
 
             try:
+
                 start = int(
                     pieces[0].strip()
                 )
+
                 end = int(
                     pieces[1].strip()
                 )
+
             except ValueError:
+
                 raise ValueError(
                     f"Invalid range: {part}"
                 )
 
             if start > end:
+
                 start, end = end, start
 
             numbers = range(
@@ -490,18 +602,26 @@ def parse_selection(
         else:
 
             try:
+
                 numbers = [int(part)]
+
             except ValueError:
+
                 raise ValueError(
                     f"Invalid number: {part}"
                 )
 
         for number in numbers:
 
-            if number < 1 or number > maximum:
+            if (
+                number < 1
+                or number > maximum
+            ):
+
                 raise ValueError(
                     f"{number} is outside "
-                    f"the valid range 1-{maximum}"
+                    f"the valid range "
+                    f"1-{maximum}"
                 )
 
             result.add(number)
@@ -510,16 +630,17 @@ def parse_selection(
 
 
 # ---------------------------------------------------------------------------
-# Display matching albums
+# Display albums
 # ---------------------------------------------------------------------------
 
 def display_selected_albums(
     albums: list[dict[str, Any]],
+    title: str = "Selected albums",
 ) -> None:
 
     print()
     print_separator()
-    print("Selected albums")
+    print(title)
     print_separator()
 
     for index, album in enumerate(
@@ -536,12 +657,15 @@ def display_selected_albums(
         )
 
         if asset_count is not None:
+
             count_text = (
                 f"{asset_count:,} assets"
             )
+
         else:
+
             count_text = (
-                "asset count unknown"
+                "asset count verified"
             )
 
         print(
@@ -556,68 +680,171 @@ def display_selected_albums(
 
 
 # ---------------------------------------------------------------------------
-# Main workflow
+# Empty album deletion
 # ---------------------------------------------------------------------------
 
-def run(
+def delete_empty_albums(
     client: ImmichClient,
+    albums: list[dict[str, Any]],
     permanent: bool,
-    pattern: str | None,
 ) -> None:
 
-    # -----------------------------------------------------------------------
-    # Load albums
-    # -----------------------------------------------------------------------
+    empty_albums = find_empty_albums(
+        client,
+        albums,
+    )
 
     print()
-    print("Loading albums...")
+    print_separator()
+    print("EMPTY ALBUMS")
+    print_separator()
 
-    albums = client.get_albums()
-
-    # -----------------------------------------------------------------------
-    # Select albums
-    # -----------------------------------------------------------------------
-
-    if pattern:
+    if not empty_albums:
 
         print()
         print(
-            f"Searching albums with pattern: "
-            f"{pattern!r}"
+            "No empty albums found."
         )
 
-        selected_albums = find_matching_albums(
-            albums,
-            pattern,
+        return
+
+    for album in empty_albums:
+
+        print(
+            f"  - {get_album_name(album)}"
         )
 
-        if not selected_albums:
+    print()
 
-            print()
-            print(
-                "No albums matched the pattern."
-            )
+    print(
+        f"Total empty albums: "
+        f"{len(empty_albums):,}"
+    )
 
-            return
+    if not permanent:
 
-        display_selected_albums(
-            selected_albums
+        print()
+        print(
+            "MODE: DRY RUN"
         )
 
-    else:
-
-        selected_albums = (
-            select_albums_interactively(
-                albums
-            )
+        print(
+            "Nothing will be deleted."
         )
 
-        if not selected_albums:
-            return
+        print()
+        print(
+            "Run again with "
+            "--empty --permanent "
+            "to delete these albums."
+        )
+
+        return
 
     # -----------------------------------------------------------------------
-    # Scan assets
+    # Final confirmation
     # -----------------------------------------------------------------------
+
+    print()
+    print_separator()
+
+    print(
+        "WARNING: THIS OPERATION IS DESTRUCTIVE."
+    )
+
+    print()
+
+    print(
+        f"You are about to permanently "
+        f"delete {len(empty_albums):,} "
+        f"empty albums."
+    )
+
+    print()
+
+    print(
+        "NO ASSETS WILL BE DELETED."
+    )
+
+    print()
+
+    print(
+        "Type DELETE to continue."
+    )
+
+    confirmation = input(
+        "> "
+    ).strip()
+
+    if confirmation != "DELETE":
+
+        print()
+        print(
+            "Aborted."
+        )
+
+        return
+
+    # -----------------------------------------------------------------------
+    # Delete albums
+    # -----------------------------------------------------------------------
+
+    print()
+    print_separator()
+    print("Deleting empty albums")
+    print_separator()
+
+    deleted = 0
+
+    for album in empty_albums:
+
+        album_id = album.get("id")
+
+        name = get_album_name(
+            album
+        )
+
+        if not album_id:
+            continue
+
+        print(
+            f"Deleting album: {name}"
+        )
+
+        client.delete_album(
+            str(album_id)
+        )
+
+        deleted += 1
+
+        time.sleep(0.1)
+
+    print()
+    print_separator()
+    print("COMPLETE")
+    print_separator()
+
+    print(
+        f"Albums deleted: {deleted:,}"
+    )
+
+    print(
+        "Assets deleted: 0"
+    )
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Normal album + asset deletion
+# ---------------------------------------------------------------------------
+
+def delete_selected_albums_and_assets(
+    client: ImmichClient,
+    selected_albums: list[dict[str, Any]],
+    permanent: bool,
+    pattern: str | None,
+) -> None:
 
     print()
     print_separator()
@@ -626,7 +853,7 @@ def run(
 
     assets_by_id: dict[
         str,
-        dict[str, Any]
+        dict[str, Any],
     ] = {}
 
     for album in selected_albums:
@@ -641,7 +868,8 @@ def run(
 
             print(
                 f"WARNING: album "
-                f"'{album_name}' has no ID."
+                f"'{album_name}' "
+                f"has no ID."
             )
 
             continue
@@ -671,8 +899,8 @@ def run(
             if not asset_id:
 
                 print(
-                    "    WARNING: asset without ID; "
-                    "skipping."
+                    "    WARNING: asset "
+                    "without ID; skipping."
                 )
 
                 continue
@@ -686,7 +914,7 @@ def run(
     )
 
     # -----------------------------------------------------------------------
-    # Deletion plan
+    # Summary
     # -----------------------------------------------------------------------
 
     print()
@@ -704,13 +932,14 @@ def run(
         )
 
     print()
+
     print(
-        f"Total albums:   "
+        f"Total albums:  "
         f"{len(selected_albums):,}"
     )
 
     print(
-        f"Unique assets:  "
+        f"Unique assets: "
         f"{len(asset_ids):,}"
     )
 
@@ -718,18 +947,10 @@ def run(
 
         print()
         print(
-            f"Pattern: "
-            f"{pattern!r}"
+            f"Pattern: {pattern!r}"
         )
 
-    if permanent:
-
-        print()
-        print(
-            "MODE: PERMANENT DELETION"
-        )
-
-    else:
+    if not permanent:
 
         print()
         print(
@@ -740,8 +961,15 @@ def run(
             "Nothing will be deleted."
         )
 
+    else:
+
+        print()
+        print(
+            "MODE: PERMANENT DELETION"
+        )
+
     # -----------------------------------------------------------------------
-    # Asset preview
+    # Preview
     # -----------------------------------------------------------------------
 
     preview_count = min(
@@ -773,8 +1001,8 @@ def run(
             )
 
             print(
-                f"  {asset_id}  "
-                f"[{asset_type}]  "
+                f"  {asset_id} "
+                f"[{asset_type}] "
                 f"{filename}"
             )
 
@@ -810,21 +1038,10 @@ def run(
             "Nothing was changed."
         )
 
-        print()
-        print(
-            "If the result looks correct, "
-            "run the same command with:"
-        )
-
-        print()
-        print(
-            "    --permanent"
-        )
-
         return
 
     # -----------------------------------------------------------------------
-    # Final confirmation
+    # Confirmation
     # -----------------------------------------------------------------------
 
     print()
@@ -843,20 +1060,6 @@ def run(
 
     print(
         f"and {len(selected_albums):,} albums."
-    )
-
-    print()
-
-    print(
-        "The assets themselves will be "
-        "deleted from Immich."
-    )
-
-    print()
-
-    print(
-        "This is NOT merely removing assets "
-        "from the albums."
     )
 
     print()
@@ -886,11 +1089,7 @@ def run(
 
         print()
         print_separator()
-
-        print(
-            "Deleting assets"
-        )
-
+        print("Deleting assets")
         print_separator()
 
         client.delete_assets(
@@ -900,8 +1099,7 @@ def run(
         print()
 
         print(
-            f"Deleted "
-            f"{len(asset_ids):,} assets."
+            f"Deleted {len(asset_ids):,} assets."
         )
 
     # -----------------------------------------------------------------------
@@ -910,11 +1108,7 @@ def run(
 
     print()
     print_separator()
-
-    print(
-        "Deleting albums"
-    )
-
+    print("Deleting albums")
     print_separator()
 
     deleted_albums = 0
@@ -923,7 +1117,7 @@ def run(
 
         album_id = album.get("id")
 
-        album_name = get_album_name(
+        name = get_album_name(
             album
         )
 
@@ -931,8 +1125,7 @@ def run(
             continue
 
         print(
-            f"Deleting album: "
-            f"{album_name}"
+            f"Deleting album: {name}"
         )
 
         client.delete_album(
@@ -943,17 +1136,9 @@ def run(
 
         time.sleep(0.1)
 
-    # -----------------------------------------------------------------------
-    # Complete
-    # -----------------------------------------------------------------------
-
     print()
     print_separator()
-
-    print(
-        "COMPLETE"
-    )
-
+    print("COMPLETE")
     print_separator()
 
     print(
@@ -970,6 +1155,106 @@ def run(
 
 
 # ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def run(
+    client: ImmichClient,
+    permanent: bool,
+    pattern: str | None,
+    empty: bool,
+) -> None:
+
+    # -----------------------------------------------------------------------
+    # Load albums
+    # -----------------------------------------------------------------------
+
+    print()
+    print("Loading albums...")
+
+    albums = client.get_albums()
+
+    # -----------------------------------------------------------------------
+    # Empty mode
+    # -----------------------------------------------------------------------
+
+    if empty:
+
+        if pattern:
+
+            raise RuntimeError(
+                "--empty and --match "
+                "cannot be used together."
+            )
+
+        delete_empty_albums(
+            client,
+            albums,
+            permanent,
+        )
+
+        return
+
+    # -----------------------------------------------------------------------
+    # Pattern mode
+    # -----------------------------------------------------------------------
+
+    if pattern:
+
+        print()
+        print(
+            f"Searching albums with pattern: "
+            f"{pattern!r}"
+        )
+
+        selected_albums = (
+            find_matching_albums(
+                albums,
+                pattern,
+            )
+        )
+
+        if not selected_albums:
+
+            print()
+            print(
+                "No albums matched the pattern."
+            )
+
+            return
+
+        display_selected_albums(
+            selected_albums
+        )
+
+    # -----------------------------------------------------------------------
+    # Interactive mode
+    # -----------------------------------------------------------------------
+
+    else:
+
+        selected_albums = (
+            select_albums_interactively(
+                albums
+            )
+        )
+
+        if not selected_albums:
+            return
+
+    # -----------------------------------------------------------------------
+    # Delete selected albums + assets
+    # -----------------------------------------------------------------------
+
+    delete_selected_albums_and_assets(
+        client=client,
+        selected_albums=selected_albums,
+        permanent=permanent,
+        pattern=pattern,
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -977,8 +1262,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Bulk delete Immich albums and "
-            "all assets contained in them."
+            "Manage Immich albums and assets."
         )
     )
 
@@ -986,7 +1270,7 @@ def main() -> int:
         "--permanent",
         action="store_true",
         help=(
-            "Actually delete assets and albums. "
+            "Actually perform deletion. "
             "Without this option the command "
             "performs a dry run."
         ),
@@ -996,9 +1280,19 @@ def main() -> int:
         "--match",
         metavar="PATTERN",
         help=(
-            "Select albums by shell-style name "
-            "pattern, e.g. '2020*' or "
-            "'*Screenshots*'."
+            "Select albums by shell-style "
+            "name pattern."
+        ),
+    )
+
+    parser.add_argument(
+        "--empty",
+        action="store_true",
+        help=(
+            "Find empty albums and delete "
+            "only those albums. "
+            "Assets are never deleted in "
+            "this mode."
         ),
     )
 
@@ -1016,6 +1310,21 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    # -----------------------------------------------------------------------
+    # Validate arguments
+    # -----------------------------------------------------------------------
+
+    if args.empty and args.match:
+
+        parser.error(
+            "--empty and --match "
+            "cannot be used together."
+        )
+
+    # -----------------------------------------------------------------------
+    # API key
+    # -----------------------------------------------------------------------
+
     api_key = os.environ.get(
         "IMMICH_API_KEY"
     )
@@ -1030,46 +1339,72 @@ def main() -> int:
         print()
 
         print(
-            "Example:"
+            "Add it to your .env file:"
         )
 
+        print()
+
         print(
-            '  export IMMICH_API_KEY="YOUR_API_KEY"'
+            "IMMICH_API_KEY=your_api_key"
         )
 
         return 1
 
+    # -----------------------------------------------------------------------
+    # Header
+    # -----------------------------------------------------------------------
+
     print()
     print(
-        "Immich v3.x Album Deletion Tool"
+        "Immich v3.x Album Management Tool"
     )
 
     print(
         f"Server: {args.url}"
     )
 
-    if args.match:
+    if args.empty:
+
+        print(
+            "Mode:   EMPTY ALBUMS"
+        )
+
+    elif args.match:
 
         print(
             f"Pattern: {args.match!r}"
         )
 
+    else:
+
+        print(
+            "Mode:   INTERACTIVE"
+        )
+
     if args.permanent:
 
         print(
-            "Mode:   PERMANENT DELETION"
+            "Action: PERMANENT DELETION"
         )
 
     else:
 
         print(
-            "Mode:   DRY RUN"
+            "Action: DRY RUN"
         )
+
+    # -----------------------------------------------------------------------
+    # Client
+    # -----------------------------------------------------------------------
 
     client = ImmichClient(
         base_url=args.url,
         api_key=api_key,
     )
+
+    # -----------------------------------------------------------------------
+    # Execute
+    # -----------------------------------------------------------------------
 
     try:
 
@@ -1077,6 +1412,7 @@ def main() -> int:
             client=client,
             permanent=args.permanent,
             pattern=args.match,
+            empty=args.empty,
         )
 
     except KeyboardInterrupt:
