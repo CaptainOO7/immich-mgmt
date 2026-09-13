@@ -1,4 +1,4 @@
-# immich-mgmt
+# immichctl
 
 A small Python utility for managing [Immich](https://immich.app/) albums through the Immich REST API.
 
@@ -26,9 +26,9 @@ A small Python utility for managing [Immich](https://immich.app/) albums through
 Clone the repository:
 
 ```bash
-git clone https://github.com/CaptainOO7/immich-mgmt.git
+git clone https://github.com/CaptainOO7/immichctl.git
 
-cd immich-mgmt
+cd immichctl
 ```
 
 Install dependencies:
@@ -56,7 +56,7 @@ Make sure `.env` is included in `.gitignore` so the API key is never committed t
 Run without `--match` to select albums interactively:
 
 ```bash
-uv run python src/immich_mgmt/immich_delete_albums.py
+uv run python src/immichctl/immich_delete_albums.py
 ```
 
 The script will list the albums and allow you to select them by number.
@@ -68,7 +68,7 @@ Use `--match` to select albums by name.
 For example, to find all albums ending with `_snapshot_image`:
 
 ```bash
-uv run python src/immich_mgmt/immich_delete_albums.py \
+uv run python src/immichctl/immich_delete_albums.py \
     --match '*_snapshot_image'
 ```
 
@@ -91,7 +91,7 @@ Trip*            Albums starting with "Trip"
 Use `--empty` to delete empty folders:
 
 ```bash
-uv run python src/immich_mgmt/immich_delete_albums.py \
+uv run python src/immichctl/immich_delete_albums.py \
     --empty
 ```
 
@@ -102,7 +102,7 @@ This operation targets only empty folders and does not delete folders that conta
 The script performs a dry run by default:
 
 ```bash
-uv run python src/immich_mgmt/immich_delete_albums.py \
+uv run python src/immichctl/immich_delete_albums.py \
     --match '*_snapshot_image'
 ```
 
@@ -113,7 +113,7 @@ It scans the matching albums and displays the assets that would be deleted, but 
 To actually delete the assets and albums:
 
 ```bash
-uv run python src/immich_mgmt/immich_delete_albums.py \
+uv run python src/immichctl/immich_delete_albums.py \
     --match '*_snapshot_image' \
     --permanent
 ```

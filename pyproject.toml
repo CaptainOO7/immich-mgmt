@@ -1,7 +1,7 @@
 [project]
-name = "immich-mgmt"
+name = "immichctl"
 version = "0.3.0"
-description = "Immich v3.x Album Deletion Tool"
+description = "A command-line utility for managing Immich"
 readme = "README.md"
 authors = [
     { name = "egonever", email = "iron.junh@gmail.com" }
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-immich-mgmt = "immich_mgmt:main"
+immichctl = "immichctl:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

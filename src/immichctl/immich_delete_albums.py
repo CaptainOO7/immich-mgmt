@@ -17,23 +17,23 @@ Features:
 Examples:
 
     # Interactive mode
-    uv run python src/immich_mgmt/immich_delete_albums.py
+    uv run python src/immichctl/immich_delete_albums.py
 
     # Find albums by name
-    uv run python src/immich_mgmt/immich_delete_albums.py \
+    uv run python src/immichctl/immich_delete_albums.py \
         --match '*_snapshot_image'
 
     # Permanently delete matching albums and their assets
-    uv run python src/immich_mgmt/immich_delete_albums.py \
+    uv run python src/immichctl/immich_delete_albums.py \
         --match '*_snapshot_image' \
         --permanent
 
     # Find empty albums
-    uv run python src/immich_mgmt/immich_delete_albums.py \
+    uv run python src/immichctl/immich_delete_albums.py \
         --empty
 
     # Permanently delete empty albums ONLY
-    uv run python src/immich_mgmt/immich_delete_albums.py \
+    uv run python src/immichctl/immich_delete_albums.py \
         --empty \
         --permanent
 """

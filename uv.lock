@@ -115,7 +115,7 @@ wheels = [
 ]
 
 [[package]]
-name = "immich-mgmt"
+name = "immichctl"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
