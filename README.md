@@ -6,6 +6,7 @@ A small Python utility for managing [Immich](https://immich.app/) albums through
 
 - Bulk delete Immich albums
 - Delete all assets contained in selected albums
+- Delete empty folders
 - Select albums interactively
 - Select albums using shell-style name patterns
 - Dry-run mode by default
@@ -26,6 +27,7 @@ Clone the repository:
 
 ```bash
 git clone https://github.com/CaptainOO7/immich-mgmt.git
+
 cd immich-mgmt
 ```
 
@@ -41,6 +43,7 @@ Create a `.env` file in the project root:
 
 ```dotenv
 IMMICH_URL=http://192.168.2.6:2283/api
+
 IMMICH_API_KEY=your_immich_api_key
 ```
 
@@ -75,10 +78,24 @@ Examples:
 
 ```text
 2024*            Albums starting with "2024"
+
 *Screenshots*    Albums containing "Screenshots"
+
 Trip*            Albums starting with "Trip"
+
 *Backup          Albums ending with "Backup"
 ```
+
+### Empty folders
+
+Use `--empty` to delete empty folders:
+
+```bash
+uv run python src/immich_mgmt/immich_delete_albums.py \
+    --empty
+```
+
+This operation targets only empty folders and does not delete folders that contain files.
 
 ### Dry run
 
@@ -137,4 +154,5 @@ The current version is defined in `pyproject.toml`.
 ## License
 
 MIT License
+
 Copyright (c) 2026 CaptainOO7
