@@ -132,11 +132,7 @@ Use the dry-run mode and carefully review the deletion plan before using `--perm
 
 ## Version
 
-Current version:
-
-```text
-v0.1.0
-```
+The current version is defined in `pyproject.toml`.
 
 ## License
 
